@@ -863,7 +863,12 @@
   <div class="saved-section">
     <div class="saved-header">
       <span class="saved-title">Saved Progressions</span>
-      <button class="btn-clear-all" onclick="clearAll()">Clear All</button>
+      <div style="display:flex; gap:14px; align-items:center;">
+        <button class="btn-clear-all" onclick="exportSavedProgressions()">Export</button>
+        <button class="btn-clear-all" onclick="document.getElementById('importSavedInput').click()">Import</button>
+        <button class="btn-clear-all" onclick="clearAll()">Clear All</button>
+      </div>
+      <input type="file" id="importSavedInput" accept="application/json" style="display:none;" onchange="importSavedProgressions(event)">
     </div>
     <div id="savedList"></div>
   </div>
@@ -1369,6 +1374,16 @@ let useFlats = true; // note spelling for display only — root pitch classes ar
 
 function noteNames() { return useFlats ? ROOTS_FLAT : ROOTS; }
 
+// A chord typed with an explicit accidental (spelling: 'sharp'/'flat', set in
+// pickerParseTyped) keeps that exact spelling regardless of the page-wide
+// toggle. Chords with no override — randomized, AI-generated, transcribed —
+// fall through to the global setting as before.
+function chordRootName(chord) {
+  if (chord.spelling === 'sharp') return ROOTS[chord.root];
+  if (chord.spelling === 'flat') return ROOTS_FLAT[chord.root];
+  return noteNames()[chord.root];
+}
+
 function setNoteSpelling(mode) {
   useFlats = (mode === 'flat');
   document.getElementById('spellFlatBtn').classList.toggle('active', useFlats);
@@ -1417,18 +1432,18 @@ function renderGrid() {
       card.innerHTML = `
         <span class="chord-number">${i + 1}</span>
         <div class="chord-half">
-          <span class="chord-root">${noteNames()[chord.root]}</span>
+          <span class="chord-root">${chordRootName(chord)}</span>
           <span class="chord-quality">${chord.quality.display}</span>
         </div>
         <div class="chord-half">
-          <span class="chord-root">${noteNames()[chord.second.root]}</span>
+          <span class="chord-root">${chordRootName(chord.second)}</span>
           <span class="chord-quality">${chord.second.quality.display}</span>
         </div>
       `;
     } else {
       card.innerHTML = `
         <span class="chord-number">${i + 1}</span>
-        <span class="chord-root">${noteNames()[chord.root]}</span>
+        <span class="chord-root">${chordRootName(chord)}</span>
         <span class="chord-quality">${chord.quality.display}</span>
       `;
     }
@@ -1482,9 +1497,9 @@ let pickerIndex = null;
 function pickerRefreshLabels() {
   if (pickerIndex === null) return;
   const bar = progression[pickerIndex];
-  document.getElementById('pickerFirstCurrent').textContent = `${noteNames()[bar.root]}${bar.quality.display}`;
+  document.getElementById('pickerFirstCurrent').textContent = `${chordRootName(bar)}${bar.quality.display}`;
   document.getElementById('pickerSecondCurrent').textContent = bar.second
-    ? `${noteNames()[bar.second.root]}${bar.second.quality.display}`
+    ? `${chordRootName(bar.second)}${bar.second.quality.display}`
     : 'no split';
 }
 
@@ -1532,18 +1547,25 @@ function pickerParseTyped(raw, statusEl) {
     return null;
   }
 
-  let qualStr = raw.slice(rootMatch[1].length).trim();
+  // Remember which accidental was actually typed, not just the pitch class —
+  // typing "C#min7" should stay C# on this bar even if the page-wide Flats/
+  // Sharps toggle is set to flats. No-op for natural roots (no # or b typed).
+  let spelling;
+  if (rootMatch[1].includes('#')) spelling = 'sharp';
+  else if (rootMatch[1].includes('b')) spelling = 'flat';
+
+  let qualStr = normalizeQualityInput(raw.slice(rootMatch[1].length).trim());
   if (qualStr === '' || qualStr.toLowerCase() === 'maj' || qualStr === 'M') qualStr = 'Maj';
   const qualName = CHORD_QUALITY_MAP[qualStr] || CHORD_QUALITY_MAP[qualStr.toLowerCase()];
   const quality = QUALITIES.find(q => q.name === qualName);
   if (!quality) {
-    statusEl.textContent = `Don't recognize the quality "${qualStr}" — try things like maj7, m9, 7#11, m6/9, dim7, sus4.`;
+    statusEl.textContent = `Don't recognize the quality "${qualStr}" — try things like maj7, m9, 7#11, m6/9, dim7, sus4, m7b5.`;
     statusEl.style.display = 'block';
     return null;
   }
 
   statusEl.style.display = 'none';
-  return { root: rootIdx, quality };
+  return spelling ? { root: rootIdx, quality, spelling } : { root: rootIdx, quality };
 }
 
 function pickerApplyFirst() {
@@ -1590,9 +1612,9 @@ function pickerApplySecond() {
 function updatePickerPreview() {
   if (pickerIndex === null) return;
   const bar = progression[pickerIndex];
-  const mainLabel = `${noteNames()[bar.root]} ${bar.quality.display}`;
+  const mainLabel = `${chordRootName(bar)} ${bar.quality.display}`;
   if (bar.second) {
-    const secondLabel = `${noteNames()[bar.second.root]} ${bar.second.quality.display}`;
+    const secondLabel = `${chordRootName(bar.second)} ${bar.second.quality.display}`;
     document.getElementById('pickerPreview').textContent = `${mainLabel} | ${secondLabel}`;
   } else {
     document.getElementById('pickerPreview').textContent = mainLabel;
@@ -1774,7 +1796,11 @@ function saveProgression() {
     title: (titleInput.value || '').trim(),
     chords: progression.map(c => {
       const bar = { root: c.root, quality: c.quality.name };
-      if (c.second) bar.second = { root: c.second.root, quality: c.second.quality.name };
+      if (c.spelling) bar.spelling = c.spelling;
+      if (c.second) {
+        bar.second = { root: c.second.root, quality: c.second.quality.name };
+        if (c.second.spelling) bar.second.spelling = c.second.spelling;
+      }
       return bar;
     }),
   };
@@ -1797,11 +1823,13 @@ function loadProgression(id) {
       root: c.root,
       quality: QUALITIES.find(q => q.name === c.quality) || QUALITIES[0]
     };
+    if (c.spelling) bar.spelling = c.spelling;
     if (c.second) {
       bar.second = {
         root: c.second.root,
         quality: QUALITIES.find(q => q.name === c.second.quality) || QUALITIES[0]
       };
+      if (c.second.spelling) bar.second.spelling = c.second.spelling;
     }
     return bar;
   });
@@ -1823,6 +1851,40 @@ function clearAll() {
   savedProgressions = [];
   localStorage.setItem('chordLooper_saved', JSON.stringify(savedProgressions));
   renderSaved();
+}
+
+function exportSavedProgressions() {
+  const blob = new Blob([JSON.stringify({ app: 'chord-looper-saved', version: 1, exportedAt: new Date().toISOString(), progressions: savedProgressions }, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `chord-looper-saved-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importSavedProgressions(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const parsed = JSON.parse(reader.result);
+      const incoming = Array.isArray(parsed.progressions) ? parsed.progressions : (Array.isArray(parsed) ? parsed : null);
+      if (!incoming) throw new Error('not a Chord Looper export');
+      // Merge rather than replace — importing on a different browser/device
+      // shouldn't wipe out whatever's already saved there. New ids avoid any
+      // collision with what's already in this browser.
+      const withNewIds = incoming.map(p => ({ ...p, id: Date.now() + Math.random() }));
+      savedProgressions = withNewIds.concat(savedProgressions);
+      localStorage.setItem('chordLooper_saved', JSON.stringify(savedProgressions));
+      renderSaved();
+    } catch (e) {
+      alert("Could not read that file — is it a Chord Looper export?");
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
 }
 
 function renderSaved() {
@@ -1883,6 +1945,13 @@ const CHORD_ROOT_MAP = {
     'Ab': 8, 'A': 9, 'A#': 10, 'Bb': 10, 'B': 11
 };
 
+// Loosens common typed variants before the exact-match lookup below: spelled-out
+// "flat"/"sharp", stray parens ("m7(b5)"), and spaces. Doesn't touch the min/m
+// or dash-for-minor question — those stay explicit entries in the map itself.
+function normalizeQualityInput(s) {
+    return s.replace(/flat/gi, 'b').replace(/sharp/gi, '#').replace(/[()]/g, '').replace(/\s+/g, '');
+}
+
 // Quality string to QUALITIES name mapping
 const CHORD_QUALITY_MAP = {
     'maj': 'Maj', 'major': 'Maj', 'M': 'Maj',
@@ -1891,7 +1960,8 @@ const CHORD_QUALITY_MAP = {
     'maj7': 'Maj7', 'M7': 'Maj7',
     'min7': 'min7', 'm7': 'min7',
     'dim7': 'dim7', 'o7': 'dim7',
-    'ø7': 'ø7', 'half-dim': 'ø7', 'm7b5': 'ø7',
+    'ø7': 'ø7', 'ø': 'ø7', 'half-dim': 'ø7', 'halfdim': 'ø7', 'half-diminished': 'ø7', 'halfdiminished': 'ø7',
+    'm7b5': 'ø7', 'min7b5': 'ø7', 'm7-5': 'ø7', 'min7-5': 'ø7',
     'mmaj7': 'mMaj7', 'mM7': 'mMaj7',
     'maj7#11': 'Maj7♯11', 'Maj7#11': 'Maj7♯11',
     '9': '9', 'dom9': '9',
@@ -1929,7 +1999,7 @@ function parseChordString(str) {
     if (rootIdx === undefined) return null;
 
     // Rest is quality
-    let qualStr = str.slice(rootStr.length).trim();
+    let qualStr = normalizeQualityInput(str.slice(rootStr.length).trim());
     if (qualStr === '' || qualStr.toLowerCase() === 'maj' || qualStr === 'M') qualStr = 'Maj';
 
     // Look up quality
