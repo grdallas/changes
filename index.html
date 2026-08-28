@@ -1949,7 +1949,11 @@ const CHORD_ROOT_MAP = {
 // "flat"/"sharp", stray parens ("m7(b5)"), and spaces. Doesn't touch the min/m
 // or dash-for-minor question — those stay explicit entries in the map itself.
 function normalizeQualityInput(s) {
-    return s.replace(/flat/gi, 'b').replace(/sharp/gi, '#').replace(/[()]/g, '').replace(/\s+/g, '');
+    return s.replace(/flat/gi, 'b').replace(/sharp/gi, '#').replace(/[()]/g, '').replace(/\s+/g, '')
+        // Dash notation for minor is standard jazz shorthand (C-7, C-7b5, D-9,
+        // a bare "C-" for a minor triad) — always unambiguous here since it's
+        // the first character right after the root.
+        .replace(/^-/, 'min');
 }
 
 // Quality string to QUALITIES name mapping
