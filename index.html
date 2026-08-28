@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chord Looper — Embed</title>
+    <title>Changes — Embed</title>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
     <style>
 
@@ -1367,6 +1367,9 @@ let currentBeat = -1;
 let beatTimer = null;
 let splitChordTimer = null; // second half of a split bar — separate from beatTimer so both get cleared on stop
 let bpm = 60;
+// Storage key kept as 'chordLooper_saved' from before the tool was renamed to
+// "Changes" — changing it would silently orphan everyone's already-saved
+// progressions, so it stays as-is even though the display name moved on.
 let savedProgressions = JSON.parse(localStorage.getItem('chordLooper_saved') || '[]');
 let metronomeEnabled = false;
 let metronomeBeat = 0; // Track quarter note within the bar
@@ -1854,11 +1857,11 @@ function clearAll() {
 }
 
 function exportSavedProgressions() {
-  const blob = new Blob([JSON.stringify({ app: 'chord-looper-saved', version: 1, exportedAt: new Date().toISOString(), progressions: savedProgressions }, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ app: 'changes-saved', version: 1, exportedAt: new Date().toISOString(), progressions: savedProgressions }, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `chord-looper-saved-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `changes-saved-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -1871,7 +1874,7 @@ function importSavedProgressions(event) {
     try {
       const parsed = JSON.parse(reader.result);
       const incoming = Array.isArray(parsed.progressions) ? parsed.progressions : (Array.isArray(parsed) ? parsed : null);
-      if (!incoming) throw new Error('not a Chord Looper export');
+      if (!incoming) throw new Error('not a Changes export');
       // Merge rather than replace — importing on a different browser/device
       // shouldn't wipe out whatever's already saved there. New ids avoid any
       // collision with what's already in this browser.
@@ -1880,7 +1883,7 @@ function importSavedProgressions(event) {
       localStorage.setItem('chordLooper_saved', JSON.stringify(savedProgressions));
       renderSaved();
     } catch (e) {
-      alert("Could not read that file — is it a Chord Looper export?");
+      alert("Could not read that file — is it a Changes export?");
     }
   };
   reader.readAsText(file);
@@ -2077,7 +2080,7 @@ function applyProgression(parsed) {
 })();
 
 // ── AI Progression Generator ──────────────────────────────────────────────
-const CHORD_LOOPER_WORKER_URL = 'https://practice-lab-proxy.gregdallasmusic.workers.dev';
+const CHANGES_WORKER_URL = 'https://practice-lab-proxy.gregdallasmusic.workers.dev';
 
 async function generateProgressionFromPrompt() {
     const input = document.getElementById('aiProgressionPrompt');
@@ -2095,7 +2098,7 @@ async function generateProgressionFromPrompt() {
     statusEl.style.display = 'none';
 
     try {
-        const res = await fetch(CHORD_LOOPER_WORKER_URL, {
+        const res = await fetch(CHANGES_WORKER_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'generateChordProgression', prompt: promptText }),
@@ -2241,7 +2244,7 @@ async function handleLeadSheetUpload(file) {
         let sections = [];
         try {
             statusEl.textContent = 'Identifying the tune’s form…';
-            const formRes = await fetch(CHORD_LOOPER_WORKER_URL, {
+            const formRes = await fetch(CHANGES_WORKER_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'identifyLeadSheetForm', image: base64, mediaType: 'image/jpeg' }),
@@ -2287,7 +2290,7 @@ async function handleLeadSheetUpload(file) {
                 if (ref) requestBody.repeatReference = ref;
             }
 
-            const res = await fetch(CHORD_LOOPER_WORKER_URL, {
+            const res = await fetch(CHANGES_WORKER_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestBody),
